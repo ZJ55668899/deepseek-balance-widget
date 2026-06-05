@@ -137,17 +137,14 @@ def fetch_balance(api_key: str):
 def parse_balance(data: dict) -> dict:
     """
     解析余额，返回:
-      { balance, total, consumed, ratio, is_available }
-    balance  = 当前可用余额
-    total    = 充值 + 赠送（总额）
-    consumed = total - balance（已消耗）
-    ratio    = consumed / total（0~1）
+      { balance, topped, granted, topped_ratio, granted_ratio, is_available }
     """
-    result = {"balance": 0, "total": 0, "consumed": 0, "ratio": 0, "is_available": True}
+    r = {"balance": 0, "topped": 0, "granted": 0,
+         "topped_ratio": 0, "granted_ratio": 0, "is_available": True}
     if not data:
-        return result
+        return r
 
-    result["is_available"] = bool(data.get("is_available", True))
+    r["is_available"] = bool(data.get("is_available", True))
     infos = data.get("balance_infos")
 
     if infos and isinstance(infos, list):
@@ -158,17 +155,18 @@ def parse_balance(data: dict) -> dict:
             total_bal += float(i.get("total_balance", 0))
             topped += float(i.get("topped_up_balance", 0))
             granted += float(i.get("granted_balance", 0))
-        result["balance"] = total_bal
-        result["total"] = topped + granted
-        result["consumed"] = max(0, result["total"] - total_bal)
+        r["balance"] = total_bal
+        r["topped"] = topped
+        r["granted"] = granted
+        if total_bal > 0:
+            r["topped_ratio"] = topped / total_bal
+            r["granted_ratio"] = granted / total_bal
     elif "balance" in data and data["balance"] is not None:
-        result["balance"] = float(data["balance"])
-        result["total"] = result["balance"]
-        result["consumed"] = 0
+        r["balance"] = float(data["balance"])
+        r["topped"] = r["balance"]
+        r["topped_ratio"] = 1.0
 
-    if result["total"] > 0:
-        result["ratio"] = min(1, result["consumed"] / result["total"])
-    return result
+    return r
 
 
 # ═══════════════════════════════════════════════════════════
@@ -343,21 +341,16 @@ class BalanceWidget:
                                      highlightthickness=0)
         self.prog_canvas.pack(fill="x")
 
-        # 消耗 / 比例 / 总额
-        self.consume_var = tk.StringVar(value="已用 --.--")
-        self.ratio_var = tk.StringVar()
-        self.total_var = tk.StringVar(value="总额 --.--")
+        # 充值 / 赠送 标签
+        self.topped_var = tk.StringVar(value="充值 --.--")
+        self.granted_var = tk.StringVar(value="赠送 --.--")
 
         info_row = tk.Frame(self.content, bg=C_BG)
         info_row.pack(fill="x", pady=(1, 0))
-        tk.Label(info_row, textvariable=self.consume_var,
-                 bg=C_BG, fg=C_TEXT, font=("Consolas", 8)).pack(side="left")
-        tk.Label(info_row, text="|", bg=C_BG, fg=C_DIM,
-                 font=("Consolas", 8)).pack(side="left", padx=4)
-        tk.Label(info_row, textvariable=self.ratio_var,
-                 bg=C_BG, fg=C_CYAN, font=("Consolas", 8, "bold")).pack(side="left")
-        tk.Label(info_row, textvariable=self.total_var,
-                 bg=C_BG, fg=C_MUTED, font=("Consolas", 8)).pack(side="right")
+        tk.Label(info_row, textvariable=self.topped_var,
+                 bg=C_BG, fg=C_CYAN, font=("Consolas", 8)).pack(side="left")
+        tk.Label(info_row, textvariable=self.granted_var,
+                 bg=C_BG, fg=C_PURPLE, font=("Consolas", 8)).pack(side="right")
 
         # ── 底部栏（状态 + 按钮） ──
         self.status_var = tk.StringVar(value="等待刷新")
@@ -375,10 +368,10 @@ class BalanceWidget:
 
         # 初始化进度条
         self.root.update_idletasks()
-        self._draw_progress(0)
+        self._draw_progress(0, 0)
 
-    def _draw_progress(self, ratio: float):
-        """绘制进度条（含百分比文字）"""
+    def _draw_progress(self, topped_ratio: float, granted_ratio: float):
+        """绘制堆叠进度条：充值(蓝) + 赠送(紫)"""
         cw = self.prog_canvas.winfo_width() or (W - 40)
         ch = 22
         self.prog_canvas.delete("all")
@@ -386,13 +379,19 @@ class BalanceWidget:
 
         # 背景
         self.prog_canvas.create_rounded_rect(0, 0, cw, ch, r, fill=C_DIM, outline="")
-        # 填充
-        fw = max(0, int(cw * ratio))
-        if fw > 0:
-            self.prog_canvas.create_rounded_rect(0, 0, fw, ch, r,
-                                                  fill=C_GRADIENT[0], outline="")
-        # 百分比文字（居中显示在进度条上）
-        pct = f"{ratio * 100:.1f}%"
+
+        # 充值部分（蓝）
+        tw = int(cw * topped_ratio)
+        if tw > 0:
+            self.prog_canvas.create_rounded_rect(0, 0, tw, ch, r,
+                                                  fill=C_CYAN, outline="")
+        # 赠送部分（紫）
+        gw = int(cw * granted_ratio)
+        if gw > 0:
+            self.prog_canvas.create_rounded_rect(tw, 0, tw + gw, ch, r,
+                                                  fill=C_PURPLE, outline="")
+        # 总额文字居中
+        pct = f"¥{self._bal:.2f}" if hasattr(self, '_bal') else "--.--"
         self.prog_canvas.create_text(cw // 2, ch // 2, text=pct,
                                       fill=C_TEXT, font=("Consolas", 10, "bold"),
                                       anchor="center")
@@ -431,7 +430,8 @@ class BalanceWidget:
 
         # 窗口尺寸变化时重绘进度条
         self.root.bind("<Configure>", lambda e: self._draw_progress(
-            self.balance_data["ratio"] if self.balance_data else 0))
+            self.balance_data["topped_ratio"] if self.balance_data else 0,
+            self.balance_data["granted_ratio"] if self.balance_data else 0))
 
     # ── 显示 / 隐藏 ──
     def hide_widget(self):
@@ -495,18 +495,19 @@ class BalanceWidget:
             self.balance_var.set("--.--")
             self.balance_label.configure(fg=C_ERROR)
             self.sub_var.set("⚠  " + error)
-            self.consume_var.set("")
-            self.ratio_var.set("")
-            self.total_var.set("")
+            self.topped_var.set("")
+            self.granted_var.set("")
             self.status_var.set(f"ERR: {error}")
             return
 
         info = parse_balance(data)
         self.balance_data = info
+        self._bal = info["balance"]
         bal = info["balance"]
-        consumed = info["consumed"]
-        total = info["total"]
-        ratio = info["ratio"]
+        topped = info["topped"]
+        granted = info["granted"]
+        topped_ratio = info["topped_ratio"]
+        granted_ratio = info["granted_ratio"]
 
         if bal < 0:
             color, status = C_ERROR, "数据异常"
@@ -520,10 +521,9 @@ class BalanceWidget:
         self.balance_var.set(f"{bal:.2f}")
         self.balance_label.configure(fg=color)
         self.sub_var.set(f"CNY  ·  {status}")
-        self.consume_var.set(f"已用 {consumed:.2f}")
-        self.ratio_var.set(f"{ratio*100:.1f}%")
-        self.total_var.set(f"总额 {total:.2f}")
-        self._draw_progress(ratio)
+        self.topped_var.set(f"充值 {topped:.2f}")
+        self.granted_var.set(f"赠送 {granted:.2f}")
+        self._draw_progress(topped_ratio, granted_ratio)
         self._update_time()
 
     def _update_time(self):

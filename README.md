@@ -92,8 +92,8 @@ deepseek-balance-widget/
 | 数据项 | 来源 |
 |--------|------|
 | 当前余额 | DeepSeek `/user/balance` API |
-| 已用额度 | `(充值总额 + 赠送总额) - 当前余额` |
-| 消耗比例 | `已用额度 / 总额` × 100% |
+| 充值余额 | 当前余额中的充值部分（蓝色） |
+| 赠送余额 | 当前余额中的免费赠送部分（紫色） |
 
 > **Token 用量**：DeepSeek 未提供查询历史 Token 用量的公开 API，如需查看请前往 [DeepSeek 控制台](https://platform.deepseek.com) → 用量 → 导出 CSV。
 
