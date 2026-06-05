@@ -94,6 +94,32 @@ deepseek-balance-widget/
 
 > **Token 用量**：DeepSeek 未提供查询历史 Token 用量的公开 API，如需查看请前往 [DeepSeek 控制台](https://platform.deepseek.com) → 用量 → 导出 CSV。
 
+## 🔗 适用场景
+
+本挂件可配合任何使用 **DeepSeek API** 的应用，实时监控账户余额消耗情况：
+
+### 🖥️ 桌面端
+
+| 应用 | 说明 |
+|------|------|
+| **[ChatBox](https://chatboxai.app)** | 桌面 AI 客户端，支持自定义 API 端点 |
+| **[Cherry Studio](https://cherrystudio.app)** | 开源桌面 AI 客户端，支持 DeepSeek |
+| **[LobeChat](https://lobehub.com)** | 现代化 AI 聊天桌面端 |
+| **[NextChat](https://nextchat.dev)** | ChatGPT Next Web，可配置 DeepSeek API |
+| **[Open WebUI](https://openwebui.com)** | 自托管 AI 界面 |
+
+### ⌨️ CLI / 开发工具
+
+| 工具 | 说明 |
+|------|------|
+| **[Claude Code CLI](https://claude.ai/code)** | 可通过 `ANTHROPIC_BASE_URL` 配置使用 DeepSeek |
+| **[Aider](https://aider.chat)** | AI 结对编程工具，支持 DeepSeek |
+| **[Continue](https://continue.dev)** | VS Code / JetBrains AI 插件 |
+| **[Open Interpreter](https://openinterpreter.com)** | 自然语言终端 |
+| **[Cline](https://github.com/cline/cline)** | VS Code 扩展，支持 DeepSeek |
+
+> 💡 简单来说：**只要用 DeepSeek API Key 的地方，就能用这个挂件看余额。**
+
 ## 🛠 技术细节
 
 - 纯 **Python 3 标准库**（tkinter / urllib / json / threading），零外部依赖
