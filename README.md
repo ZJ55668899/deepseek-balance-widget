@@ -2,8 +2,8 @@
 
 桌面余额挂件 — 实时显示 DeepSeek API 账户余额与消耗进度。
 
-**适配主流 DeepSeek 接入工具：**
-> 🖥️ **Codex 桌面端** · **Codex CLI** · **Claude 桌面端** · **Claude Code CLI**
+**适配 DeepSeek 接入工具：**
+> 🖥️ **Codex 桌面端** · **Codex CLI** · **其他支持 DeepSeek API 的应用**
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
@@ -107,8 +107,6 @@ deepseek-balance-widget/
 |------|------|------|
 | **Codex 桌面端** | 🖥️ 桌面 | 接入 DeepSeek 后实时查看余额消耗 |
 | **Codex CLI** | ⌨️ CLI | 命令行接入 DeepSeek，边用边看余额 |
-| **Claude 桌面端** | 🖥️ 桌面 | 通过配置使用 DeepSeek API |
-| **Claude Code CLI** | ⌨️ CLI | 搭配 DeepSeek 模型，实时监控扣费 |
 
 ### 🖥️ 桌面端
 
