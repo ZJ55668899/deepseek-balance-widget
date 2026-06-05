@@ -3,6 +3,8 @@
 DeepSeek Balance Widget — 桌面余额挂件
 实时显示 DeepSeek API 账户余额，自动刷新，置顶显示
 零依赖，仅需 Python 3 标准库
+
+快捷键: Ctrl+Alt+D 一键显示/隐藏窗口
 """
 
 import tkinter as tk
@@ -14,6 +16,7 @@ import tempfile
 import atexit
 import urllib.request
 import urllib.error
+import platform
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +28,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 LOCK_FILE = Path(tempfile.gettempdir()) / ".ds_widget.lock"
 API_URL = "https://api.deepseek.com/user/balance"
 REFRESH_INTERVAL = 30
+HOTKEY_ID = 0xC0DE  # 全局热键 ID
 
 # ─── 深色主题 ───────────────────────────────────────────────
 C_BG       = "#0d1117"
@@ -91,7 +95,7 @@ atexit.register(release_lock)
 
 
 # ═══════════════════════════════════════════════════════════
-#  API（标准库 urllib，零依赖）
+#  API
 # ═══════════════════════════════════════════════════════════
 
 def load_config() -> dict:
@@ -114,58 +118,77 @@ def fetch_balance(api_key: str):
     if not api_key:
         return None, "请先设置 API Key"
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
     try:
         req = urllib.request.Request(API_URL, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8")), None
     except urllib.error.HTTPError as e:
-        if e.code == 401:
-            return None, "API Key 无效"
-        if e.code == 429:
-            return None, "请求过于频繁"
+        if e.code == 401:  return None, "API Key 无效"
+        if e.code == 429:  return None, "请求过于频繁"
         return None, f"HTTP {e.code}"
-    except urllib.error.URLError:
-        return None, "网络不可达"
-    except TimeoutError:
-        return None, "连接超时"
-    except Exception as e:
-        return None, str(e)
+    except urllib.error.URLError:  return None, "网络不可达"
+    except TimeoutError:           return None, "连接超时"
+    except Exception as e:         return None, str(e)
 
 
 def parse_balance(data: dict) -> tuple:
-    if not data:
-        return 0.0, True, "无数据"
-
-    is_available = bool(data.get("is_available", True))
+    if not data:               return 0.0, True, "无数据"
+    is_avail = bool(data.get("is_available", True))
     infos = data.get("balance_infos")
 
     if infos and isinstance(infos, list):
-        total = 0.0
-        parts = []
-        for info in infos:
-            tb = float(info.get("total_balance", 0))
-            total += tb
-            topped = float(info.get("topped_up_balance", 0))
-            granted = float(info.get("granted_balance", 0))
-            if topped or granted:
-                parts.append(f"充值 {topped:.2f} | 赠送 {granted:.2f}")
-        return total, is_available, "  ".join(parts)
+        total = 0.0; parts = []
+        for i in infos:
+            tb = float(i.get("total_balance", 0)); total += tb
+            t = float(i.get("topped_up_balance", 0))
+            g = float(i.get("granted_balance", 0))
+            if t or g: parts.append(f"充值 {t:.2f} | 赠送 {g:.2f}")
+        return total, is_avail, "  ".join(parts)
 
     if "balance" in data and data["balance"] is not None:
-        return float(data["balance"]), is_available, ""
+        return float(data["balance"]), is_avail, ""
 
-    for key in ("available_balance", "remaining", "credit"):
-        if key in data:
-            try:
-                return float(data[key]), True, ""
-            except (ValueError, TypeError):
-                pass
-
+    for k in ("available_balance", "remaining", "credit"):
+        if k in data:
+            try: return float(data[k]), True, ""
+            except: pass
     return 0.0, True, "未知响应格式"
+
+
+# ═══════════════════════════════════════════════════════════
+#  全局热键（Windows）
+# ═══════════════════════════════════════════════════════════
+
+def register_hotkey(hwnd):
+    """注册 Ctrl+Alt+D 全局热键"""
+    if platform.system() != "Windows":
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        MOD_ALT = 0x0001; MOD_CONTROL = 0x0002; MOD_NOREPEAT = 0x4000
+        # 先取消注册旧的（如果有）
+        user32.UnregisterHotKey(None, HOTKEY_ID)
+        result = user32.RegisterHotKey(None, HOTKEY_ID,
+                                        MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
+                                        ord('D'))
+        return result != 0
+    except Exception:
+        return False
+
+
+def unregister_hotkey():
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+        ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID)
+    except Exception:
+        pass
+
+
+atexit.register(unregister_hotkey)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -187,9 +210,7 @@ class SettingsDialog:
         self.dialog.update_idletasks()
         pw, ph = parent.winfo_width(), parent.winfo_height()
         px, py = parent.winfo_x(), parent.winfo_y()
-        x = px + (pw - 420) // 2
-        y = py + (ph - 200) // 2
-        self.dialog.geometry(f"+{x}+{y}")
+        self.dialog.geometry(f"+{px+(pw-420)//2}+{py+(ph-200)//2}")
 
         tk.Label(self.dialog, text="DeepSeek API 设置",
                  bg=C_BG, fg=C_TEXT, font=("Microsoft YaHei", 12, "bold")).pack(pady=(16, 8))
@@ -198,42 +219,36 @@ class SettingsDialog:
         frame.pack(pady=4)
         tk.Label(frame, text="API Key:", bg=C_BG, fg=C_TEXT,
                  font=("Microsoft YaHei", 10)).pack(side="left")
-
         self.entry = tk.Entry(frame, width=36, show="●",
                               bg=C_CARD, fg=C_TEXT, insertbackground=C_TEXT,
                               font=("Consolas", 10), relief="flat", bd=8)
         self.entry.insert(0, current_key)
         self.entry.pack(side="left", padx=(8, 4))
-
-        self.show_btn = tk.Button(frame, text="👁", command=self.toggle_show,
+        self.show_btn = tk.Button(frame, text="👁", command=self._toggle_show,
                                   bg=C_CARD, fg=C_MUTED, bd=0, cursor="hand2")
         self.show_btn.pack(side="left")
 
         tk.Label(self.dialog, text="在 platform.deepseek.com/api_keys 获取",
                  bg=C_BG, fg=C_MUTED, font=("Microsoft YaHei", 8)).pack(pady=(0, 8))
-
         btn_frame = tk.Frame(self.dialog, bg=C_BG)
         btn_frame.pack(pady=6)
-        for text, bg, fg, cmd in [
-            ("保存", C_ACCENT, "#0d1117", self.save),
+        for t, bg, fg, cmd in [
+            ("保存", C_ACCENT, "#0d1117", self._save),
             ("取消", "#21262d", C_TEXT, self.dialog.destroy),
         ]:
-            tk.Button(btn_frame, text=text, bg=bg, fg=fg, bd=0,
+            tk.Button(btn_frame, text=t, bg=bg, fg=fg, bd=0,
                       padx=20, pady=4, cursor="hand2",
                       font=("Microsoft YaHei", 9), command=cmd).pack(side="left", padx=6)
 
-    def toggle_show(self):
+    def _toggle_show(self):
         if self.entry.cget("show") == "●":
-            self.entry.config(show="")
-            self.show_btn.config(text="🙈")
+            self.entry.config(show=""); self.show_btn.config(text="🙈")
         else:
-            self.entry.config(show="●")
-            self.show_btn.config(text="👁")
+            self.entry.config(show="●"); self.show_btn.config(text="👁")
 
-    def save(self):
+    def _save(self):
         key = self.entry.get().strip()
-        if key:
-            self.callback(key)
+        if key: self.callback(key)
         self.dialog.destroy()
 
 
@@ -245,17 +260,19 @@ class BalanceWidget:
     def __init__(self):
         self.config = load_config()
         self.error = None
+        self._hotkey_ok = register_hotkey(None)
+
         self.root = tk.Tk()
         self.root.title("DeepSeek Balance Widget")
         self._setup_window()
         self._setup_ui()
         self._bind_events()
         self._poll_signal()
+        self._poll_hotkey()
         self.root.after(500, self.refresh_balance)
         self._auto_refresh()
         self.root.mainloop()
 
-    # ── 窗口 ──
     def _setup_window(self):
         self.root.overrideredirect(True)
         self.root.geometry("240x190")
@@ -264,6 +281,7 @@ class BalanceWidget:
         self.root.configure(bg=C_BG)
         sw = self.root.winfo_screenwidth()
         self.root.geometry(f"+{sw-240-30}+90")
+        # 不在任务栏显示
         try:
             import ctypes
             hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
@@ -272,7 +290,6 @@ class BalanceWidget:
         except Exception:
             pass
 
-    # ── UI ──
     def _setup_ui(self):
         # 标题栏
         self.title_bar = tk.Frame(self.root, bg=C_TITLE_BG, height=28)
@@ -288,21 +305,18 @@ class BalanceWidget:
         # 内容
         self.content = tk.Frame(self.root, bg=C_BG)
         self.content.pack(fill="both", expand=True)
-
         self.balance_var = tk.StringVar(value="---")
         self.balance_label = tk.Label(self.content, textvariable=self.balance_var,
                                       bg=C_BG, fg=C_ACCENT, font=("Segoe UI", 38, "bold"))
         self.balance_label.pack(pady=(16, 0))
-
         self.sub_var = tk.StringVar(value="CNY  ·  等待刷新")
         tk.Label(self.content, textvariable=self.sub_var, bg=C_BG, fg=C_MUTED,
                  font=("Microsoft YaHei", 9)).pack()
-
         self.status_var = tk.StringVar(value="")
         tk.Label(self.content, textvariable=self.status_var, bg=C_BG, fg=C_MUTED,
                  font=("Consolas", 8)).pack(pady=(4, 0))
 
-        # 底部按钮
+        # 底部
         bottom = tk.Frame(self.root, bg=C_BG)
         bottom.pack(fill="x", side="bottom", pady=(0, 6))
         tk.Button(bottom, text="⟳ 刷新", bg=C_BG, fg=C_MUTED, bd=0, cursor="hand2",
@@ -313,7 +327,6 @@ class BalanceWidget:
         if not self.config.get("api_key"):
             self.status_var.set("右键 → 设置 → 输入 API Key")
 
-    # ── 交互 ──
     def _bind_events(self):
         drag = {"x": 0, "y": 0}
 
@@ -340,12 +353,17 @@ class BalanceWidget:
         menu.add_checkbutton(label="置顶显示", variable=self._top_var,
                              command=lambda: self.root.attributes("-topmost", self._top_var.get()))
         menu.add_separator()
-        menu.add_command(label="隐藏", command=self.hide_widget)
+
+        if self._hotkey_ok:
+            menu.add_command(label="隐藏（Ctrl+Alt+D 呼出）", command=self.hide_widget)
+        else:
+            menu.add_command(label="隐藏", command=self.hide_widget)
         menu.add_command(label="✕ 退出", command=self.root.quit)
 
         for w in (self.root, self.content, self.balance_label):
             w.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
 
+    # ── 显示 / 隐藏 ──
     def hide_widget(self):
         self.root.withdraw()
 
@@ -353,6 +371,15 @@ class BalanceWidget:
         self.root.deiconify()
         self.root.lift()
         self.refresh_balance()
+
+    def toggle_visibility(self):
+        try:
+            if self.root.state() == "withdrawn" or not self.root.winfo_ismapped():
+                self.show_widget()
+            else:
+                self.hide_widget()
+        except Exception:
+            self.show_widget()
 
     def _poll_signal(self):
         sig = CONFIG_DIR / "show.signal"
@@ -363,6 +390,22 @@ class BalanceWidget:
             except Exception:
                 pass
         self.root.after(2000, self._poll_signal)
+
+    def _poll_hotkey(self):
+        """每 200ms 检查全局热键消息"""
+        if self._hotkey_ok and platform.system() == "Windows":
+            try:
+                import ctypes
+                from ctypes import wintypes
+                user32 = ctypes.windll.user32
+                WM_HOTKEY = 0x0312
+                msg = wintypes.MSG()
+                while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+                    if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                        self.toggle_visibility()
+            except Exception:
+                pass
+        self.root.after(200, self._poll_hotkey)
 
     # ── 数据 ──
     def refresh_balance(self):
@@ -379,23 +422,15 @@ class BalanceWidget:
 
     def update_display(self, data, error):
         if error:
-            self.balance_var.set("--.--")
-            self.balance_label.configure(fg=C_ERROR)
-            self.sub_var.set("CNY")
-            self.status_var.set(f"⚠ {error}")
-            self._update_time()
-            return
+            self.balance_var.set("--.--"); self.balance_label.configure(fg=C_ERROR)
+            self.sub_var.set("CNY"); self.status_var.set(f"⚠ {error}")
+            self._update_time(); return
 
         balance, available, detail = parse_balance(data)
-        if balance < 0:
-            self.balance_var.set("--.--")
-            color, status = C_ERROR, "数据异常"
-        elif balance < 1:
-            color, status = C_WARN, "余额不足"
-        elif not available:
-            color, status = C_ERROR, "账户不可用"
-        else:
-            color, status = C_ACCENT, "正常"
+        if balance < 0:         color, status = C_ERROR, "数据异常"
+        elif balance < 1:       color, status = C_WARN, "余额不足"
+        elif not available:     color, status = C_ERROR, "账户不可用"
+        else:                   color, status = C_ACCENT, "正常"
 
         self.balance_var.set(f"{balance:.2f}")
         self.balance_label.configure(fg=color)
