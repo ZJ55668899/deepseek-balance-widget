@@ -41,7 +41,7 @@ C_ERROR     = "#ef4444"   # 错误红
 C_TEXT      = "#e2e8f0"   # 主文字
 C_MUTED     = "#475569"   # 辅助文字
 C_DIM       = "#1e293b"   # 极暗
-W, H        = 280, 300    # 窗口尺寸
+W, H        = 280, 215    # 窗口尺寸
 
 
 # ═══════════════════════════════════════════════════════════
@@ -321,87 +321,81 @@ class BalanceWidget:
 
         # ── 内容区域 ──
         self.content = tk.Frame(self.root, bg=C_BG)
-        self.content.pack(fill="both", expand=True, padx=16)
+        self.content.pack(fill="both", expand=True, padx=20, pady=(4, 0))
 
         # 余额数字
         self.balance_var = tk.StringVar(value="--.--")
         self.balance_label = tk.Label(self.content, textvariable=self.balance_var,
                                       bg=C_BG, fg=C_CYAN,
-                                      font=("Consolas", 42, "bold"))
-        self.balance_label.pack(pady=(12, 0))
+                                      font=("Consolas", 38, "bold"))
+        self.balance_label.pack(pady=(4, 0))
 
         # 单位
         self.sub_var = tk.StringVar(value="CNY  ·  余额")
         tk.Label(self.content, textvariable=self.sub_var, bg=C_BG, fg=C_MUTED,
                  font=("Consolas", 9)).pack()
 
-        # ── 进度条 ──
-        self.progress_frame = tk.Frame(self.content, bg=C_BG, height=40)
-        self.progress_frame.pack(fill="x", pady=(10, 0))
-        self.progress_frame.pack_propagate(False)
+        # ── 进度条（含百分比） ──
+        self.progress_frame = tk.Frame(self.content, bg=C_BG)
+        self.progress_frame.pack(fill="x", pady=(8, 0))
 
-        self.prog_canvas = tk.Canvas(self.progress_frame, bg=C_DIM, height=12,
+        self.prog_canvas = tk.Canvas(self.progress_frame, bg=C_DIM, height=22,
                                      highlightthickness=0)
-        self.prog_canvas.pack(fill="x", padx=0)
-        self._prog_bg = None
-        self._prog_fill = None
+        self.prog_canvas.pack(fill="x")
 
-        # 消耗 / 总额 标签
-        self.consume_var = tk.StringVar(value="已用 --.--  CNY")
-        self.total_var = tk.StringVar(value="总额 --.--  CNY")
+        # 消耗 / 比例 / 总额
+        self.consume_var = tk.StringVar(value="已用 --.--")
+        self.ratio_var = tk.StringVar()
+        self.total_var = tk.StringVar(value="总额 --.--")
 
-        info_row = tk.Frame(self.progress_frame, bg=C_BG)
-        info_row.pack(fill="x", pady=(2, 0))
+        info_row = tk.Frame(self.content, bg=C_BG)
+        info_row.pack(fill="x", pady=(1, 0))
         tk.Label(info_row, textvariable=self.consume_var,
                  bg=C_BG, fg=C_TEXT, font=("Consolas", 8)).pack(side="left")
+        tk.Label(info_row, text="|", bg=C_BG, fg=C_DIM,
+                 font=("Consolas", 8)).pack(side="left", padx=4)
+        tk.Label(info_row, textvariable=self.ratio_var,
+                 bg=C_BG, fg=C_CYAN, font=("Consolas", 8, "bold")).pack(side="left")
         tk.Label(info_row, textvariable=self.total_var,
                  bg=C_BG, fg=C_MUTED, font=("Consolas", 8)).pack(side="right")
 
-        # ── 分隔装饰线 ──
-        sep = tk.Frame(self.content, bg=C_BORDER, height=1)
-        sep.pack(fill="x", pady=(10, 6))
-
-        # ── 状态行 ──
+        # ── 底部栏（状态 + 按钮） ──
         self.status_var = tk.StringVar(value="等待刷新")
-        tk.Label(self.content, textvariable=self.status_var, bg=C_BG, fg=C_MUTED,
-                 font=("Consolas", 7)).pack(pady=(4, 0))
-
-        # ── 底部操作栏 ──
         bottom = tk.Frame(self.root, bg=C_BG)
-        bottom.pack(fill="x", side="bottom", pady=(0, 8))
-        tk.Button(bottom, text="[ REFRESH ]", bg=C_BG, fg=C_MUTED, bd=0, cursor="hand2",
-                  font=("Consolas", 8), command=self.refresh_balance).pack(side="left", padx=12)
-        tk.Button(bottom, text="[ SETUP ]", bg=C_BG, fg=C_MUTED, bd=0, cursor="hand2",
-                  font=("Consolas", 8), command=self.open_settings).pack(side="right", padx=12)
+        bottom.pack(fill="x", side="bottom", pady=(0, 6))
+        tk.Label(bottom, textvariable=self.status_var, bg=C_BG, fg=C_MUTED,
+                 font=("Consolas", 7)).pack(side="left", padx=12)
+        tk.Button(bottom, text="[REFRESH]", bg=C_BG, fg=C_MUTED, bd=0, cursor="hand2",
+                  font=("Consolas", 8), command=self.refresh_balance).pack(side="right", padx=6)
+        tk.Button(bottom, text="[SETUP]", bg=C_BG, fg=C_MUTED, bd=0, cursor="hand2",
+                  font=("Consolas", 8), command=self.open_settings).pack(side="right", padx=(0, 12))
 
         if not self.config.get("api_key"):
-            self.status_var.set("右击 → [SETUP] → 输入 API Key")
+            self.status_var.set("Right-click > SETUP > enter API Key")
 
         # 初始化进度条
         self.root.update_idletasks()
         self._draw_progress(0)
 
     def _draw_progress(self, ratio: float):
-        """绘制进度条"""
-        cw = self.prog_canvas.winfo_width() or (W - 32)
-        ch = 12
+        """绘制进度条（含百分比文字）"""
+        cw = self.prog_canvas.winfo_width() or (W - 40)
+        ch = 22
         self.prog_canvas.delete("all")
-        r = 4  # 圆角半径
+        r = 4
 
         # 背景
-        self.prog_canvas.create_rounded_rect(0, 0, cw, ch, r,
-                                              fill=C_DIM, outline="")
+        self.prog_canvas.create_rounded_rect(0, 0, cw, ch, r, fill=C_DIM, outline="")
         # 填充
         fw = max(0, int(cw * ratio))
         if fw > 0:
-            colors = C_GRADIENT
             self.prog_canvas.create_rounded_rect(0, 0, fw, ch, r,
-                                                  fill=colors[0], outline="")
-            # 高光渐变效果（叠加半透明渐变条）
-            if fw > 20:
-                self.prog_canvas.create_rectangle(2, 2, fw - 2, ch // 2,
-                                                   fill="white", outline="",
-                                                   stipple="gray25")
+                                                  fill=C_GRADIENT[0], outline="")
+        # 百分比文字（居中显示在进度条上）
+        pct = f"{ratio * 100:.1f}%"
+        self.prog_canvas.create_text(cw // 2, ch // 2, text=pct,
+                                      fill=C_TEXT, font=("Consolas", 10, "bold"),
+                                      anchor="center")
 
     def _bind_events(self):
         drag = {"x": 0, "y": 0}
@@ -502,6 +496,7 @@ class BalanceWidget:
             self.balance_label.configure(fg=C_ERROR)
             self.sub_var.set("⚠  " + error)
             self.consume_var.set("")
+            self.ratio_var.set("")
             self.total_var.set("")
             self.status_var.set(f"ERR: {error}")
             return
@@ -526,6 +521,7 @@ class BalanceWidget:
         self.balance_label.configure(fg=color)
         self.sub_var.set(f"CNY  ·  {status}")
         self.consume_var.set(f"已用 {consumed:.2f}")
+        self.ratio_var.set(f"{ratio*100:.1f}%")
         self.total_var.set(f"总额 {total:.2f}")
         self._draw_progress(ratio)
         self._update_time()
