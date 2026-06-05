@@ -2,6 +2,9 @@
 
 桌面余额挂件 — 实时显示 DeepSeek API 账户余额与消耗进度。
 
+**适配主流 DeepSeek 接入工具：**
+> 🖥️ **Codex 桌面端** · **Codex CLI** · **Claude 桌面端** · **Claude Code CLI**
+
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen)
@@ -96,7 +99,16 @@ deepseek-balance-widget/
 
 ## 🔗 适用场景
 
-本挂件可配合任何使用 **DeepSeek API** 的应用，实时监控账户余额消耗情况：
+本挂件可配合任何使用 **DeepSeek API** 的应用，实时监控账户余额消耗情况。
+
+### 热门推荐 🔥
+
+| 应用 | 类型 | 说明 |
+|------|------|------|
+| **Codex 桌面端** | 🖥️ 桌面 | 接入 DeepSeek 后实时查看余额消耗 |
+| **Codex CLI** | ⌨️ CLI | 命令行接入 DeepSeek，边用边看余额 |
+| **Claude 桌面端** | 🖥️ 桌面 | 通过配置使用 DeepSeek API |
+| **Claude Code CLI** | ⌨️ CLI | 搭配 DeepSeek 模型，实时监控扣费 |
 
 ### 🖥️ 桌面端
 
@@ -112,7 +124,6 @@ deepseek-balance-widget/
 
 | 工具 | 说明 |
 |------|------|
-| **[Claude Code CLI](https://claude.ai/code)** | 可通过 `ANTHROPIC_BASE_URL` 配置使用 DeepSeek |
 | **[Aider](https://aider.chat)** | AI 结对编程工具，支持 DeepSeek |
 | **[Continue](https://continue.dev)** | VS Code / JetBrains AI 插件 |
 | **[Open Interpreter](https://openinterpreter.com)** | 自然语言终端 |
