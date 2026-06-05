@@ -361,14 +361,6 @@ class BalanceWidget:
         sep = tk.Frame(self.content, bg=C_BORDER, height=1)
         sep.pack(fill="x", pady=(10, 6))
 
-        # ── Token 信息（暂不可用） ──
-        token_row = tk.Frame(self.content, bg=C_BG)
-        token_row.pack(fill="x")
-        tk.Label(token_row, text="TOKENS", bg=C_BG, fg=C_MUTED,
-                 font=("Consolas", 7)).pack(side="left")
-        tk.Label(token_row, text="N/A (API 未提供)",
-                 bg=C_BG, fg=C_DIM, font=("Consolas", 7)).pack(side="right")
-
         # ── 状态行 ──
         self.status_var = tk.StringVar(value="等待刷新")
         tk.Label(self.content, textvariable=self.status_var, bg=C_BG, fg=C_MUTED,
