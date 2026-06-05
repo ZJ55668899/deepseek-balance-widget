@@ -275,14 +275,14 @@ class BalanceWidget:
     # ── UI ──
     def _setup_ui(self):
         # 标题栏
-        tb = tk.Frame(self.root, bg=C_TITLE_BG, height=28)
-        tb.pack(fill="x")
-        tb.pack_propagate(False)
-        tk.Label(tb, text="DeepSeek 余额", bg=C_TITLE_BG, fg=C_MUTED,
+        self.title_bar = tk.Frame(self.root, bg=C_TITLE_BG, height=28)
+        self.title_bar.pack(fill="x")
+        self.title_bar.pack_propagate(False)
+        tk.Label(self.title_bar, text="DeepSeek 余额", bg=C_TITLE_BG, fg=C_MUTED,
                  font=("Microsoft YaHei", 9)).pack(side="left", padx=10, pady=4)
-        tk.Button(tb, text="—", bg=C_TITLE_BG, fg=C_MUTED, bd=0, cursor="hand2",
+        tk.Button(self.title_bar, text="—", bg=C_TITLE_BG, fg=C_MUTED, bd=0, cursor="hand2",
                   font=("Segoe UI", 10), command=self.hide_widget).pack(side="right", padx=2)
-        tk.Button(tb, text="✕", bg=C_TITLE_BG, fg=C_MUTED, bd=0, cursor="hand2",
+        tk.Button(self.title_bar, text="✕", bg=C_TITLE_BG, fg=C_MUTED, bd=0, cursor="hand2",
                   font=("Segoe UI", 10), command=self.root.quit).pack(side="right", padx=(2, 6))
 
         # 内容
@@ -323,10 +323,11 @@ class BalanceWidget:
         def move(e):
             self.root.geometry(f"+{self.root.winfo_x()+e.x-drag['x']}+{self.root.winfo_y()+e.y-drag['y']}")
 
-        for w in (self.content, self.balance_label):
+        for w in (self.title_bar, self.content, self.balance_label):
             w.bind("<Button-1>", press)
             w.bind("<B1-Motion>", move)
 
+        self.title_bar.bind("<Double-Button-1>", lambda e: self.open_settings())
         self.root.bind("<Escape>", lambda e: self.root.quit())
 
         menu = tk.Menu(self.root, tearoff=0, bg=C_CARD, fg=C_TEXT,
