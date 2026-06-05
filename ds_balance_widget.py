@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
 DeepSeek Balance Widget — 桌面余额挂件
-实时显示 DeepSeek API 账户余额，自动刷新，置顶显示
+赛博科技风格，实时显示余额与消耗进度
 零依赖，仅需 Python 3 标准库
-
-快捷键: Ctrl+Alt+D 一键显示/隐藏窗口
+快捷键: Ctrl+Alt+D 显示/隐藏
 """
 
 import tkinter as tk
@@ -28,17 +27,21 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 LOCK_FILE = Path(tempfile.gettempdir()) / ".ds_widget.lock"
 API_URL = "https://api.deepseek.com/user/balance"
 REFRESH_INTERVAL = 30
-HOTKEY_ID = 0xC0DE  # 全局热键 ID
+HOTKEY_ID = 0xC0DE
 
-# ─── 深色主题 ───────────────────────────────────────────────
-C_BG       = "#0d1117"
-C_CARD     = "#161b22"
-C_ACCENT   = "#00d4aa"
-C_WARN     = "#f0883e"
-C_ERROR    = "#f85149"
-C_TEXT     = "#e6edf3"
-C_MUTED    = "#8b949e"
-C_TITLE_BG = "#0d1117"
+# ─── 赛博科技色板 ──────────────────────────────────────────
+C_BG        = "#070b14"   # 深空黑
+C_CARD      = "#0f1729"   # 暗蓝卡
+C_BORDER    = "#1a2744"   # 边框
+C_CYAN      = "#00d4ff"   # 电光蓝
+C_PURPLE    = "#7c3aed"   # 紫
+C_GRADIENT  = ["#00d4ff", "#3b82f6", "#7c3aed"]  # 渐变色
+C_WARN      = "#f59e0b"   # 警告黄
+C_ERROR     = "#ef4444"   # 错误红
+C_TEXT      = "#e2e8f0"   # 主文字
+C_MUTED     = "#475569"   # 辅助文字
+C_DIM       = "#1e293b"   # 极暗
+W, H        = 280, 300    # 窗口尺寸
 
 
 # ═══════════════════════════════════════════════════════════
@@ -117,7 +120,6 @@ def save_config(cfg: dict):
 def fetch_balance(api_key: str):
     if not api_key:
         return None, "请先设置 API Key"
-
     headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
     try:
         req = urllib.request.Request(API_URL, headers=headers)
@@ -132,58 +134,64 @@ def fetch_balance(api_key: str):
     except Exception as e:         return None, str(e)
 
 
-def parse_balance(data: dict) -> tuple:
-    if not data:               return 0.0, True, "无数据"
-    is_avail = bool(data.get("is_available", True))
+def parse_balance(data: dict) -> dict:
+    """
+    解析余额，返回:
+      { balance, total, consumed, ratio, is_available }
+    balance  = 当前可用余额
+    total    = 充值 + 赠送（总额）
+    consumed = total - balance（已消耗）
+    ratio    = consumed / total（0~1）
+    """
+    result = {"balance": 0, "total": 0, "consumed": 0, "ratio": 0, "is_available": True}
+    if not data:
+        return result
+
+    result["is_available"] = bool(data.get("is_available", True))
     infos = data.get("balance_infos")
 
     if infos and isinstance(infos, list):
-        total = 0.0; parts = []
+        total_bal = 0.0
+        topped = 0.0
+        granted = 0.0
         for i in infos:
-            tb = float(i.get("total_balance", 0)); total += tb
-            t = float(i.get("topped_up_balance", 0))
-            g = float(i.get("granted_balance", 0))
-            if t or g: parts.append(f"充值 {t:.2f} | 赠送 {g:.2f}")
-        return total, is_avail, "  ".join(parts)
+            total_bal += float(i.get("total_balance", 0))
+            topped += float(i.get("topped_up_balance", 0))
+            granted += float(i.get("granted_balance", 0))
+        result["balance"] = total_bal
+        result["total"] = topped + granted
+        result["consumed"] = max(0, result["total"] - total_bal)
+    elif "balance" in data and data["balance"] is not None:
+        result["balance"] = float(data["balance"])
+        result["total"] = result["balance"]
+        result["consumed"] = 0
 
-    if "balance" in data and data["balance"] is not None:
-        return float(data["balance"]), is_avail, ""
-
-    for k in ("available_balance", "remaining", "credit"):
-        if k in data:
-            try: return float(data[k]), True, ""
-            except: pass
-    return 0.0, True, "未知响应格式"
+    if result["total"] > 0:
+        result["ratio"] = min(1, result["consumed"] / result["total"])
+    return result
 
 
 # ═══════════════════════════════════════════════════════════
-#  全局热键（Windows）
+#  热键
 # ═══════════════════════════════════════════════════════════
 
-def _register_hotkey(hwnd):
-    """注册 Ctrl+Alt+D 全局热键"""
+def _register_hotkey(hwnd) -> bool:
     if platform.system() != "Windows":
         return False
     try:
         import ctypes
-        user32 = ctypes.windll.user32
-        MOD_ALT = 0x0001; MOD_CONTROL = 0x0002; MOD_NOREPEAT = 0x4000
-        user32.UnregisterHotKey(hwnd, HOTKEY_ID)
-        result = user32.RegisterHotKey(hwnd, HOTKEY_ID,
-                                        MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
-                                        ord('D'))
-        return result != 0
+        u = ctypes.windll.user32
+        u.UnregisterHotKey(hwnd, HOTKEY_ID)
+        return bool(u.RegisterHotKey(hwnd, HOTKEY_ID, 0x0002 | 0x0001 | 0x4000, ord('D')))
     except Exception:
         return False
 
 
 def unregister_hotkey():
-    """注销全局热键（清理所有）"""
     if platform.system() != "Windows":
         return
     try:
         import ctypes
-        # UnregisterHotKey(NULL, id) 注销当前线程的指定热键
         ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID)
     except Exception:
         pass
@@ -207,45 +215,45 @@ class SettingsDialog:
         self.dialog.attributes("-topmost", True)
         self.dialog.transient(parent)
         self.dialog.grab_set()
-
         self.dialog.update_idletasks()
         pw, ph = parent.winfo_width(), parent.winfo_height()
         px, py = parent.winfo_x(), parent.winfo_y()
         self.dialog.geometry(f"+{px+(pw-420)//2}+{py+(ph-200)//2}")
 
-        tk.Label(self.dialog, text="DeepSeek API 设置",
-                 bg=C_BG, fg=C_TEXT, font=("Microsoft YaHei", 12, "bold")).pack(pady=(16, 8))
+        tk.Label(self.dialog, text="DEEPSEEK API SETUP",
+                 bg=C_BG, fg=C_CYAN, font=("Consolas", 12, "bold")).pack(pady=(16, 8))
 
         frame = tk.Frame(self.dialog, bg=C_BG)
         frame.pack(pady=4)
         tk.Label(frame, text="API Key:", bg=C_BG, fg=C_TEXT,
-                 font=("Microsoft YaHei", 10)).pack(side="left")
+                 font=("Consolas", 10)).pack(side="left")
         self.entry = tk.Entry(frame, width=36, show="●",
-                              bg=C_CARD, fg=C_TEXT, insertbackground=C_TEXT,
+                              bg=C_CARD, fg=C_TEXT, insertbackground=C_CYAN,
                               font=("Consolas", 10), relief="flat", bd=8)
         self.entry.insert(0, current_key)
         self.entry.pack(side="left", padx=(8, 4))
-        self.show_btn = tk.Button(frame, text="👁", command=self._toggle_show,
-                                  bg=C_CARD, fg=C_MUTED, bd=0, cursor="hand2")
+        self.show_btn = tk.Button(frame, text="SHOW", command=self._toggle_show,
+                                  bg=C_CARD, fg=C_MUTED, bd=0, cursor="hand2",
+                                  font=("Consolas", 8))
         self.show_btn.pack(side="left")
 
-        tk.Label(self.dialog, text="在 platform.deepseek.com/api_keys 获取",
-                 bg=C_BG, fg=C_MUTED, font=("Microsoft YaHei", 8)).pack(pady=(0, 8))
+        tk.Label(self.dialog, text="platform.deepseek.com/api_keys",
+                 bg=C_BG, fg=C_MUTED, font=("Consolas", 8)).pack(pady=(0, 8))
         btn_frame = tk.Frame(self.dialog, bg=C_BG)
         btn_frame.pack(pady=6)
         for t, bg, fg, cmd in [
-            ("保存", C_ACCENT, "#0d1117", self._save),
-            ("取消", "#21262d", C_TEXT, self.dialog.destroy),
+            ("[SAVE]", C_CYAN, "#0d1117", self._save),
+            ("[CANCEL]", C_DIM, C_TEXT, self.dialog.destroy),
         ]:
             tk.Button(btn_frame, text=t, bg=bg, fg=fg, bd=0,
                       padx=20, pady=4, cursor="hand2",
-                      font=("Microsoft YaHei", 9), command=cmd).pack(side="left", padx=6)
+                      font=("Consolas", 9), command=cmd).pack(side="left", padx=6)
 
     def _toggle_show(self):
         if self.entry.cget("show") == "●":
-            self.entry.config(show=""); self.show_btn.config(text="🙈")
+            self.entry.config(show=""); self.show_btn.config(text="HIDE")
         else:
-            self.entry.config(show="●"); self.show_btn.config(text="👁")
+            self.entry.config(show="●"); self.show_btn.config(text="SHOW")
 
     def _save(self):
         key = self.entry.get().strip()
@@ -260,36 +268,19 @@ class SettingsDialog:
 class BalanceWidget:
     def __init__(self):
         self.config = load_config()
-        self.error = None
+        self.balance_data = None
 
         self.root = tk.Tk()
         self.root.title("DeepSeek Balance Widget")
         self._setup_window()
-        self._hotkey_ok = _register_hotkey(self._get_hwnd())
         self._setup_ui()
+        self._hotkey_ok = _register_hotkey(self._get_hwnd())
         self._bind_events()
         self._poll_signal()
         self._poll_hotkey()
         self.root.after(500, self.refresh_balance)
         self._auto_refresh()
         self.root.mainloop()
-
-    def _setup_window(self):
-        self.root.overrideredirect(True)
-        self.root.geometry("240x190")
-        self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.94)
-        self.root.configure(bg=C_BG)
-        sw = self.root.winfo_screenwidth()
-        self.root.geometry(f"+{sw-240-30}+90")
-        # 不在任务栏显示
-        try:
-            import ctypes
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, -20)
-            ctypes.windll.user32.SetWindowLongW(hwnd, -20, style | 0x00000080)
-        except Exception:
-            pass
 
     def _get_hwnd(self):
         try:
@@ -298,42 +289,127 @@ class BalanceWidget:
         except Exception:
             return None
 
+    def _setup_window(self):
+        self.root.overrideredirect(True)
+        self.root.geometry(f"{W}x{H}")
+        self.root.attributes("-topmost", True)
+        self.root.attributes("-alpha", 0.95)
+        self.root.configure(bg=C_BG)
+        sw = self.root.winfo_screenwidth()
+        self.root.geometry(f"+{sw-W-30}+90")
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, -20)
+            ctypes.windll.user32.SetWindowLongW(hwnd, -20, style | 0x00000080)
+        except Exception:
+            pass
+
     def _setup_ui(self):
-        # 标题栏
-        self.title_bar = tk.Frame(self.root, bg=C_TITLE_BG, height=28)
+        # ── 标题栏 ──
+        self.title_bar = tk.Frame(self.root, bg=C_CARD, height=32)
         self.title_bar.pack(fill="x")
         self.title_bar.pack_propagate(False)
-        tk.Label(self.title_bar, text="DeepSeek 余额", bg=C_TITLE_BG, fg=C_MUTED,
-                 font=("Microsoft YaHei", 9)).pack(side="left", padx=10, pady=4)
-        tk.Button(self.title_bar, text="—", bg=C_TITLE_BG, fg=C_MUTED, bd=0, cursor="hand2",
-                  font=("Segoe UI", 10), command=self.hide_widget).pack(side="right", padx=2)
-        tk.Button(self.title_bar, text="✕", bg=C_TITLE_BG, fg=C_MUTED, bd=0, cursor="hand2",
-                  font=("Segoe UI", 10), command=self.root.quit).pack(side="right", padx=(2, 6))
+        tk.Label(self.title_bar, text="⚡ DeepSeek", bg=C_CARD, fg=C_CYAN,
+                 font=("Consolas", 10, "bold")).pack(side="left", padx=12, pady=4)
+        tk.Label(self.title_bar, text=f"v1", bg=C_CARD, fg=C_MUTED,
+                 font=("Consolas", 7)).pack(side="left", padx=(0, 4))
+        tk.Button(self.title_bar, text="—", bg=C_CARD, fg=C_MUTED, bd=0, cursor="hand2",
+                  font=("Consolas", 10), command=self.hide_widget).pack(side="right", padx=2)
+        tk.Button(self.title_bar, text="✕", bg=C_CARD, fg=C_MUTED, bd=0, cursor="hand2",
+                  font=("Consolas", 10), command=self.root.quit).pack(side="right", padx=(2, 8))
 
-        # 内容
+        # ── 内容区域 ──
         self.content = tk.Frame(self.root, bg=C_BG)
-        self.content.pack(fill="both", expand=True)
-        self.balance_var = tk.StringVar(value="---")
-        self.balance_label = tk.Label(self.content, textvariable=self.balance_var,
-                                      bg=C_BG, fg=C_ACCENT, font=("Segoe UI", 38, "bold"))
-        self.balance_label.pack(pady=(16, 0))
-        self.sub_var = tk.StringVar(value="CNY  ·  等待刷新")
-        tk.Label(self.content, textvariable=self.sub_var, bg=C_BG, fg=C_MUTED,
-                 font=("Microsoft YaHei", 9)).pack()
-        self.status_var = tk.StringVar(value="")
-        tk.Label(self.content, textvariable=self.status_var, bg=C_BG, fg=C_MUTED,
-                 font=("Consolas", 8)).pack(pady=(4, 0))
+        self.content.pack(fill="both", expand=True, padx=16)
 
-        # 底部
+        # 余额数字
+        self.balance_var = tk.StringVar(value="--.--")
+        self.balance_label = tk.Label(self.content, textvariable=self.balance_var,
+                                      bg=C_BG, fg=C_CYAN,
+                                      font=("Consolas", 42, "bold"))
+        self.balance_label.pack(pady=(12, 0))
+
+        # 单位
+        self.sub_var = tk.StringVar(value="CNY  ·  余额")
+        tk.Label(self.content, textvariable=self.sub_var, bg=C_BG, fg=C_MUTED,
+                 font=("Consolas", 9)).pack()
+
+        # ── 进度条 ──
+        self.progress_frame = tk.Frame(self.content, bg=C_BG, height=40)
+        self.progress_frame.pack(fill="x", pady=(10, 0))
+        self.progress_frame.pack_propagate(False)
+
+        self.prog_canvas = tk.Canvas(self.progress_frame, bg=C_DIM, height=12,
+                                     highlightthickness=0)
+        self.prog_canvas.pack(fill="x", padx=0)
+        self._prog_bg = None
+        self._prog_fill = None
+
+        # 消耗 / 总额 标签
+        self.consume_var = tk.StringVar(value="已用 --.--  CNY")
+        self.total_var = tk.StringVar(value="总额 --.--  CNY")
+
+        info_row = tk.Frame(self.progress_frame, bg=C_BG)
+        info_row.pack(fill="x", pady=(2, 0))
+        tk.Label(info_row, textvariable=self.consume_var,
+                 bg=C_BG, fg=C_TEXT, font=("Consolas", 8)).pack(side="left")
+        tk.Label(info_row, textvariable=self.total_var,
+                 bg=C_BG, fg=C_MUTED, font=("Consolas", 8)).pack(side="right")
+
+        # ── 分隔装饰线 ──
+        sep = tk.Frame(self.content, bg=C_BORDER, height=1)
+        sep.pack(fill="x", pady=(10, 6))
+
+        # ── Token 信息（暂不可用） ──
+        token_row = tk.Frame(self.content, bg=C_BG)
+        token_row.pack(fill="x")
+        tk.Label(token_row, text="TOKENS", bg=C_BG, fg=C_MUTED,
+                 font=("Consolas", 7)).pack(side="left")
+        tk.Label(token_row, text="N/A (API 未提供)",
+                 bg=C_BG, fg=C_DIM, font=("Consolas", 7)).pack(side="right")
+
+        # ── 状态行 ──
+        self.status_var = tk.StringVar(value="等待刷新")
+        tk.Label(self.content, textvariable=self.status_var, bg=C_BG, fg=C_MUTED,
+                 font=("Consolas", 7)).pack(pady=(4, 0))
+
+        # ── 底部操作栏 ──
         bottom = tk.Frame(self.root, bg=C_BG)
-        bottom.pack(fill="x", side="bottom", pady=(0, 6))
-        tk.Button(bottom, text="⟳ 刷新", bg=C_BG, fg=C_MUTED, bd=0, cursor="hand2",
-                  font=("Microsoft YaHei", 8), command=self.refresh_balance).pack(side="left", padx=8)
-        tk.Button(bottom, text="⚙ 设置", bg=C_BG, fg=C_MUTED, bd=0, cursor="hand2",
-                  font=("Microsoft YaHei", 8), command=self.open_settings).pack(side="right", padx=8)
+        bottom.pack(fill="x", side="bottom", pady=(0, 8))
+        tk.Button(bottom, text="[ REFRESH ]", bg=C_BG, fg=C_MUTED, bd=0, cursor="hand2",
+                  font=("Consolas", 8), command=self.refresh_balance).pack(side="left", padx=12)
+        tk.Button(bottom, text="[ SETUP ]", bg=C_BG, fg=C_MUTED, bd=0, cursor="hand2",
+                  font=("Consolas", 8), command=self.open_settings).pack(side="right", padx=12)
 
         if not self.config.get("api_key"):
-            self.status_var.set("右键 → 设置 → 输入 API Key")
+            self.status_var.set("右击 → [SETUP] → 输入 API Key")
+
+        # 初始化进度条
+        self.root.update_idletasks()
+        self._draw_progress(0)
+
+    def _draw_progress(self, ratio: float):
+        """绘制进度条"""
+        cw = self.prog_canvas.winfo_width() or (W - 32)
+        ch = 12
+        self.prog_canvas.delete("all")
+        r = 4  # 圆角半径
+
+        # 背景
+        self.prog_canvas.create_rounded_rect(0, 0, cw, ch, r,
+                                              fill=C_DIM, outline="")
+        # 填充
+        fw = max(0, int(cw * ratio))
+        if fw > 0:
+            colors = C_GRADIENT
+            self.prog_canvas.create_rounded_rect(0, 0, fw, ch, r,
+                                                  fill=colors[0], outline="")
+            # 高光渐变效果（叠加半透明渐变条）
+            if fw > 20:
+                self.prog_canvas.create_rectangle(2, 2, fw - 2, ch // 2,
+                                                   fill="white", outline="",
+                                                   stipple="gray25")
 
     def _bind_events(self):
         drag = {"x": 0, "y": 0}
@@ -344,7 +420,7 @@ class BalanceWidget:
         def move(e):
             self.root.geometry(f"+{self.root.winfo_x()+e.x-drag['x']}+{self.root.winfo_y()+e.y-drag['y']}")
 
-        for w in (self.title_bar, self.content, self.balance_label):
+        for w in (self.title_bar, self.content):
             w.bind("<Button-1>", press)
             w.bind("<B1-Motion>", move)
 
@@ -352,24 +428,24 @@ class BalanceWidget:
         self.root.bind("<Escape>", lambda e: self.root.quit())
 
         menu = tk.Menu(self.root, tearoff=0, bg=C_CARD, fg=C_TEXT,
-                       activebackground=C_ACCENT, activeforeground=C_BG,
-                       font=("Microsoft YaHei", 9))
-        menu.add_command(label="⟳ 刷新", command=self.refresh_balance)
-        menu.add_command(label="⚙ 设置", command=self.open_settings)
+                       activebackground=C_CYAN, activeforeground=C_BG,
+                       font=("Consolas", 9))
+        menu.add_command(label="[REFRESH]", command=self.refresh_balance)
+        menu.add_command(label="[SETUP]", command=self.open_settings)
         menu.add_separator()
         self._top_var = tk.BooleanVar(value=True)
-        menu.add_checkbutton(label="置顶显示", variable=self._top_var,
+        menu.add_checkbutton(label="Always On Top", variable=self._top_var,
                              command=lambda: self.root.attributes("-topmost", self._top_var.get()))
         menu.add_separator()
+        menu.add_command(label="Hide (Ctrl+Alt+D)", command=self.hide_widget)
+        menu.add_command(label="[EXIT]", command=self.root.quit)
 
-        if self._hotkey_ok:
-            menu.add_command(label="隐藏（Ctrl+Alt+D 呼出）", command=self.hide_widget)
-        else:
-            menu.add_command(label="隐藏", command=self.hide_widget)
-        menu.add_command(label="✕ 退出", command=self.root.quit)
-
-        for w in (self.root, self.content, self.balance_label):
+        for w in (self.root, self.content):
             w.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
+
+        # 窗口尺寸变化时重绘进度条
+        self.root.bind("<Configure>", lambda e: self._draw_progress(
+            self.balance_data["ratio"] if self.balance_data else 0))
 
     # ── 显示 / 隐藏 ──
     def hide_widget(self):
@@ -400,16 +476,15 @@ class BalanceWidget:
         self.root.after(2000, self._poll_signal)
 
     def _poll_hotkey(self):
-        """每 200ms 检查全局热键消息"""
         if self._hotkey_ok and platform.system() == "Windows":
             try:
                 import ctypes
                 from ctypes import wintypes
-                user32 = ctypes.windll.user32
+                u = ctypes.windll.user32
                 WM_HOTKEY = 0x0312
                 hwnd = self._get_hwnd()
                 msg = wintypes.MSG()
-                while user32.PeekMessageW(ctypes.byref(msg), hwnd, WM_HOTKEY, WM_HOTKEY, 1):
+                while u.PeekMessageW(ctypes.byref(msg), hwnd, WM_HOTKEY, WM_HOTKEY, 1):
                     if msg.wParam == HOTKEY_ID:
                         self.toggle_visibility()
             except Exception:
@@ -431,24 +506,40 @@ class BalanceWidget:
 
     def update_display(self, data, error):
         if error:
-            self.balance_var.set("--.--"); self.balance_label.configure(fg=C_ERROR)
-            self.sub_var.set("CNY"); self.status_var.set(f"⚠ {error}")
-            self._update_time(); return
+            self.balance_var.set("--.--")
+            self.balance_label.configure(fg=C_ERROR)
+            self.sub_var.set("⚠  " + error)
+            self.consume_var.set("")
+            self.total_var.set("")
+            self.status_var.set(f"ERR: {error}")
+            return
 
-        balance, available, detail = parse_balance(data)
-        if balance < 0:         color, status = C_ERROR, "数据异常"
-        elif balance < 1:       color, status = C_WARN, "余额不足"
-        elif not available:     color, status = C_ERROR, "账户不可用"
-        else:                   color, status = C_ACCENT, "正常"
+        info = parse_balance(data)
+        self.balance_data = info
+        bal = info["balance"]
+        consumed = info["consumed"]
+        total = info["total"]
+        ratio = info["ratio"]
 
-        self.balance_var.set(f"{balance:.2f}")
+        if bal < 0:
+            color, status = C_ERROR, "数据异常"
+        elif bal < 1:
+            color, status = C_WARN, "余额不足"
+        elif not info["is_available"]:
+            color, status = C_ERROR, "不可用"
+        else:
+            color, status = C_CYAN, "正常"
+
+        self.balance_var.set(f"{bal:.2f}")
         self.balance_label.configure(fg=color)
         self.sub_var.set(f"CNY  ·  {status}")
-        self.status_var.set(detail if detail else "")
+        self.consume_var.set(f"已用 {consumed:.2f}")
+        self.total_var.set(f"总额 {total:.2f}")
+        self._draw_progress(ratio)
         self._update_time()
 
     def _update_time(self):
-        self.status_var.set(self.status_var.get().rstrip() + f"  更新 {datetime.now():%H:%M:%S}")
+        self.status_var.set(f"更新 {datetime.now():%H:%M:%S}")
 
     def _auto_refresh(self):
         self.refresh_balance()
@@ -461,6 +552,35 @@ class BalanceWidget:
         self.config["api_key"] = key
         save_config(self.config)
         self.refresh_balance()
+
+
+# ═══════════════════════════════════════════════════════════
+#  给 Canvas 添加圆角矩形方法
+# ═══════════════════════════════════════════════════════════
+
+def _patch_canvas():
+    """给 Canvas 添加 create_rounded_rect 方法"""
+    def create_rounded_rect(self, x1, y1, x2, y2, r, **kwargs):
+        points = []
+        r = min(r, (x2 - x1) / 2, (y2 - y1) / 2)
+        points.append((x1 + r, y1))
+        points.append((x2 - r, y1))
+        points.append((x2, y1 + r))
+        points.append((x2, y2 - r))
+        points.append((x2 - r, y2))
+        points.append((x1 + r, y2))
+        points.append((x1, y2 - r))
+        points.append((x1, y1 + r))
+        # 使用 polygon 画圆角矩形
+        coords = []
+        for i, (px, py) in enumerate(points):
+            coords.extend([px, py])
+        return self.create_polygon(coords, smooth=True, **kwargs)
+
+    tk.Canvas.create_rounded_rect = create_rounded_rect
+
+
+_patch_canvas()
 
 
 # ═══════════════════════════════════════════════════════════
