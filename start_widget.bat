@@ -1,9 +1,10 @@
 @echo off
-cd /d "D:\×ÀÃæ"
-echo Starting...
-echo If error, send me the output below.
+cd /d "%~dp0"
+echo Starting DeepSeek Balance Widget...
 echo.
-"D:\miniforge\python.exe" "D:\×ÀÃæ\ds_balance_widget.py"
-echo.
-echo Exited code: %errorlevel%
-pause
+if not "%1"=="/w" (
+    start /min "" pythonw "%~dp0ds_balance_widget.py"
+) else (
+    python "%~dp0ds_balance_widget.py"
+    pause
+)
