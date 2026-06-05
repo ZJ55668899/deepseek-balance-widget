@@ -1,0 +1,10 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Config (contains API key)
+.ds_widget/
+
+# Logs
+*.log
