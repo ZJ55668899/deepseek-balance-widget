@@ -160,7 +160,7 @@ def parse_balance(data: dict) -> tuple:
 #  全局热键（Windows）
 # ═══════════════════════════════════════════════════════════
 
-def register_hotkey(hwnd):
+def _register_hotkey(hwnd):
     """注册 Ctrl+Alt+D 全局热键"""
     if platform.system() != "Windows":
         return False
@@ -168,9 +168,8 @@ def register_hotkey(hwnd):
         import ctypes
         user32 = ctypes.windll.user32
         MOD_ALT = 0x0001; MOD_CONTROL = 0x0002; MOD_NOREPEAT = 0x4000
-        # 先取消注册旧的（如果有）
-        user32.UnregisterHotKey(None, HOTKEY_ID)
-        result = user32.RegisterHotKey(None, HOTKEY_ID,
+        user32.UnregisterHotKey(hwnd, HOTKEY_ID)
+        result = user32.RegisterHotKey(hwnd, HOTKEY_ID,
                                         MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
                                         ord('D'))
         return result != 0
@@ -179,10 +178,12 @@ def register_hotkey(hwnd):
 
 
 def unregister_hotkey():
+    """注销全局热键（清理所有）"""
     if platform.system() != "Windows":
         return
     try:
         import ctypes
+        # UnregisterHotKey(NULL, id) 注销当前线程的指定热键
         ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID)
     except Exception:
         pass
@@ -260,11 +261,11 @@ class BalanceWidget:
     def __init__(self):
         self.config = load_config()
         self.error = None
-        self._hotkey_ok = register_hotkey(None)
 
         self.root = tk.Tk()
         self.root.title("DeepSeek Balance Widget")
         self._setup_window()
+        self._hotkey_ok = _register_hotkey(self._get_hwnd())
         self._setup_ui()
         self._bind_events()
         self._poll_signal()
@@ -289,6 +290,13 @@ class BalanceWidget:
             ctypes.windll.user32.SetWindowLongW(hwnd, -20, style | 0x00000080)
         except Exception:
             pass
+
+    def _get_hwnd(self):
+        try:
+            import ctypes
+            return ctypes.windll.user32.GetParent(self.root.winfo_id())
+        except Exception:
+            return None
 
     def _setup_ui(self):
         # 标题栏
@@ -399,9 +407,10 @@ class BalanceWidget:
                 from ctypes import wintypes
                 user32 = ctypes.windll.user32
                 WM_HOTKEY = 0x0312
+                hwnd = self._get_hwnd()
                 msg = wintypes.MSG()
-                while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
-                    if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                while user32.PeekMessageW(ctypes.byref(msg), hwnd, WM_HOTKEY, WM_HOTKEY, 1):
+                    if msg.wParam == HOTKEY_ID:
                         self.toggle_visibility()
             except Exception:
                 pass
