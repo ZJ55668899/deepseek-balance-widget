@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 DeepSeek Balance Widget — 桌面余额挂件
-赛博科技风格，实时显示余额与消耗进度
+实时显示 DeepSeek API 余额，统计消耗进度，估算剩余 Token
 零依赖，仅需 Python 3 标准库
 快捷键: Ctrl+Alt+D 显示/隐藏
 """
@@ -24,24 +24,25 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 CONFIG_DIR = SCRIPT_DIR / ".ds_widget"
 CONFIG_DIR.mkdir(exist_ok=True)
 CONFIG_FILE = CONFIG_DIR / "config.json"
+STATE_FILE = CONFIG_DIR / "state.json"
 LOCK_FILE = Path(tempfile.gettempdir()) / ".ds_widget.lock"
 API_URL = "https://api.deepseek.com/user/balance"
 REFRESH_INTERVAL = 30
 HOTKEY_ID = 0xC0DE
+TOKEN_PRICE = 0.000003  # ¥/token 约 ¥3/1M tokens
 
-# ─── 赛博科技色板 ──────────────────────────────────────────
-C_BG        = "#070b14"   # 深空黑
-C_CARD      = "#0f1729"   # 暗蓝卡
-C_BORDER    = "#1a2744"   # 边框
-C_CYAN      = "#00d4ff"   # 电光蓝
-C_PURPLE    = "#7c3aed"   # 紫
-C_GRADIENT  = ["#00d4ff", "#3b82f6", "#7c3aed"]  # 渐变色
-C_WARN      = "#f59e0b"   # 警告黄
-C_ERROR     = "#ef4444"   # 错误红
-C_TEXT      = "#e2e8f0"   # 主文字
-C_MUTED     = "#475569"   # 辅助文字
-C_DIM       = "#1e293b"   # 极暗
-W, H        = 280, 215    # 窗口尺寸
+# ─── 色板 ───────────────────────────────────────────────────
+C_BG       = "#070b14"
+C_CARD     = "#0f1729"
+C_CYAN     = "#00d4ff"
+C_PURPLE   = "#7c3aed"
+C_WARN     = "#f59e0b"
+C_ERROR    = "#ef4444"
+C_TEXT     = "#e2e8f0"
+C_MUTED    = "#475569"
+C_DIM      = "#1e293b"
+C_GREEN    = "#22c55e"
+W, H       = 280, 210
 
 
 # ═══════════════════════════════════════════════════════════
@@ -117,6 +118,22 @@ def save_config(cfg: dict):
         pass
 
 
+def load_state() -> dict:
+    if STATE_FILE.exists():
+        try:
+            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def save_state(state: dict):
+    try:
+        STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def fetch_balance(api_key: str):
     if not api_key:
         return None, "请先设置 API Key"
@@ -135,37 +152,19 @@ def fetch_balance(api_key: str):
 
 
 def parse_balance(data: dict) -> dict:
-    """
-    解析余额，返回:
-      { balance, topped, granted, topped_ratio, granted_ratio, is_available }
-    """
-    r = {"balance": 0, "topped": 0, "granted": 0,
-         "topped_ratio": 0, "granted_ratio": 0, "is_available": True}
+    r = {"balance": 0, "topped": 0, "granted": 0, "is_available": True}
     if not data:
         return r
-
     r["is_available"] = bool(data.get("is_available", True))
     infos = data.get("balance_infos")
-
     if infos and isinstance(infos, list):
-        total_bal = 0.0
-        topped = 0.0
-        granted = 0.0
         for i in infos:
-            total_bal += float(i.get("total_balance", 0))
-            topped += float(i.get("topped_up_balance", 0))
-            granted += float(i.get("granted_balance", 0))
-        r["balance"] = total_bal
-        r["topped"] = topped
-        r["granted"] = granted
-        if total_bal > 0:
-            r["topped_ratio"] = topped / total_bal
-            r["granted_ratio"] = granted / total_bal
+            r["balance"] += float(i.get("total_balance", 0))
+            r["topped"] += float(i.get("topped_up_balance", 0))
+            r["granted"] += float(i.get("granted_balance", 0))
     elif "balance" in data and data["balance"] is not None:
         r["balance"] = float(data["balance"])
         r["topped"] = r["balance"]
-        r["topped_ratio"] = 1.0
-
     return r
 
 
@@ -266,6 +265,8 @@ class SettingsDialog:
 class BalanceWidget:
     def __init__(self):
         self.config = load_config()
+        self.state = load_state()
+        self.initial_balance = self.state.get("initial_balance")
         self.balance_data = None
 
         self.root = tk.Tk()
@@ -280,6 +281,7 @@ class BalanceWidget:
         self._auto_refresh()
         self.root.mainloop()
 
+    # ── 窗口 ──
     def _get_hwnd(self):
         try:
             import ctypes
@@ -303,56 +305,54 @@ class BalanceWidget:
         except Exception:
             pass
 
+    # ── UI ──
     def _setup_ui(self):
-        # ── 标题栏 ──
+        # 标题栏
         self.title_bar = tk.Frame(self.root, bg=C_CARD, height=32)
         self.title_bar.pack(fill="x")
         self.title_bar.pack_propagate(False)
         tk.Label(self.title_bar, text="⚡ DeepSeek", bg=C_CARD, fg=C_CYAN,
                  font=("Consolas", 10, "bold")).pack(side="left", padx=12, pady=4)
-        tk.Label(self.title_bar, text=f"v1", bg=C_CARD, fg=C_MUTED,
-                 font=("Consolas", 7)).pack(side="left", padx=(0, 4))
         tk.Button(self.title_bar, text="—", bg=C_CARD, fg=C_MUTED, bd=0, cursor="hand2",
                   font=("Consolas", 10), command=self.hide_widget).pack(side="right", padx=2)
         tk.Button(self.title_bar, text="✕", bg=C_CARD, fg=C_MUTED, bd=0, cursor="hand2",
                   font=("Consolas", 10), command=self.root.quit).pack(side="right", padx=(2, 8))
 
-        # ── 内容区域 ──
+        # 内容
         self.content = tk.Frame(self.root, bg=C_BG)
         self.content.pack(fill="both", expand=True, padx=20, pady=(4, 0))
 
-        # 余额数字
+        # 余额
         self.balance_var = tk.StringVar(value="--.--")
         self.balance_label = tk.Label(self.content, textvariable=self.balance_var,
-                                      bg=C_BG, fg=C_CYAN,
-                                      font=("Consolas", 38, "bold"))
+                                      bg=C_BG, fg=C_CYAN, font=("Consolas", 38, "bold"))
         self.balance_label.pack(pady=(4, 0))
 
-        # 单位
         self.sub_var = tk.StringVar(value="CNY  ·  余额")
         tk.Label(self.content, textvariable=self.sub_var, bg=C_BG, fg=C_MUTED,
                  font=("Consolas", 9)).pack()
 
-        # ── 进度条（含百分比） ──
-        self.progress_frame = tk.Frame(self.content, bg=C_BG)
-        self.progress_frame.pack(fill="x", pady=(8, 0))
+        # ── 进度条（充值占比） ──
+        self.prog_canvas = tk.Canvas(self.content, bg=C_DIM, height=22, highlightthickness=0)
+        self.prog_canvas.pack(fill="x", pady=(8, 0))
 
-        self.prog_canvas = tk.Canvas(self.progress_frame, bg=C_DIM, height=22,
-                                     highlightthickness=0)
-        self.prog_canvas.pack(fill="x")
-
-        # 充值 / 赠送 标签
+        # 消耗 / 充值 / Token
+        self.consume_var = tk.StringVar(value="消耗 --")
         self.topped_var = tk.StringVar(value="充值 --.--")
-        self.granted_var = tk.StringVar(value="赠送 --.--")
+        self.token_var = tk.StringVar(value="≈ -- M Tokens")
 
-        info_row = tk.Frame(self.content, bg=C_BG)
-        info_row.pack(fill="x", pady=(1, 0))
-        tk.Label(info_row, textvariable=self.topped_var,
+        row1 = tk.Frame(self.content, bg=C_BG)
+        row1.pack(fill="x", pady=(1, 0))
+        tk.Label(row1, textvariable=self.consume_var,
+                 bg=C_BG, fg=C_WARN, font=("Consolas", 8, "bold")).pack(side="left")
+        tk.Label(row1, text="|", bg=C_BG, fg=C_DIM,
+                 font=("Consolas", 8)).pack(side="left", padx=4)
+        tk.Label(row1, textvariable=self.topped_var,
                  bg=C_BG, fg=C_CYAN, font=("Consolas", 8)).pack(side="left")
-        tk.Label(info_row, textvariable=self.granted_var,
-                 bg=C_BG, fg=C_PURPLE, font=("Consolas", 8)).pack(side="right")
+        tk.Label(row1, textvariable=self.token_var,
+                 bg=C_BG, fg=C_GREEN, font=("Consolas", 8)).pack(side="right")
 
-        # ── 底部栏（状态 + 按钮） ──
+        # 底部栏
         self.status_var = tk.StringVar(value="等待刷新")
         bottom = tk.Frame(self.root, bg=C_BG)
         bottom.pack(fill="x", side="bottom", pady=(0, 6))
@@ -366,36 +366,24 @@ class BalanceWidget:
         if not self.config.get("api_key"):
             self.status_var.set("Right-click > SETUP > enter API Key")
 
-        # 初始化进度条
         self.root.update_idletasks()
-        self._draw_progress(0, 0)
+        self._draw_progress(0)
 
-    def _draw_progress(self, topped_ratio: float, granted_ratio: float):
-        """绘制堆叠进度条：充值(蓝) + 赠送(紫)"""
+    def _draw_progress(self, ratio: float):
+        """充值占比进度条"""
         cw = self.prog_canvas.winfo_width() or (W - 40)
         ch = 22
         self.prog_canvas.delete("all")
         r = 4
-
-        # 背景
         self.prog_canvas.create_rounded_rect(0, 0, cw, ch, r, fill=C_DIM, outline="")
+        fw = int(cw * min(1, ratio))
+        if fw > 0:
+            self.prog_canvas.create_rounded_rect(0, 0, fw, ch, r, fill=C_CYAN, outline="")
+        self.prog_canvas.create_text(cw // 2, ch // 2,
+                                      text=f"{ratio*100:.1f}%" if ratio > 0 else "0.0%",
+                                      fill=C_TEXT, font=("Consolas", 10, "bold"), anchor="center")
 
-        # 充值部分（蓝）
-        tw = int(cw * topped_ratio)
-        if tw > 0:
-            self.prog_canvas.create_rounded_rect(0, 0, tw, ch, r,
-                                                  fill=C_CYAN, outline="")
-        # 赠送部分（紫）
-        gw = int(cw * granted_ratio)
-        if gw > 0:
-            self.prog_canvas.create_rounded_rect(tw, 0, tw + gw, ch, r,
-                                                  fill=C_PURPLE, outline="")
-        # 总额文字居中
-        pct = f"¥{self._bal:.2f}" if hasattr(self, '_bal') else "--.--"
-        self.prog_canvas.create_text(cw // 2, ch // 2, text=pct,
-                                      fill=C_TEXT, font=("Consolas", 10, "bold"),
-                                      anchor="center")
-
+    # ── 交互 ──
     def _bind_events(self):
         drag = {"x": 0, "y": 0}
 
@@ -413,8 +401,7 @@ class BalanceWidget:
         self.root.bind("<Escape>", lambda e: self.root.quit())
 
         menu = tk.Menu(self.root, tearoff=0, bg=C_CARD, fg=C_TEXT,
-                       activebackground=C_CYAN, activeforeground=C_BG,
-                       font=("Consolas", 9))
+                       activebackground=C_CYAN, activeforeground=C_BG, font=("Consolas", 9))
         menu.add_command(label="[REFRESH]", command=self.refresh_balance)
         menu.add_command(label="[SETUP]", command=self.open_settings)
         menu.add_separator()
@@ -422,18 +409,24 @@ class BalanceWidget:
         menu.add_checkbutton(label="Always On Top", variable=self._top_var,
                              command=lambda: self.root.attributes("-topmost", self._top_var.get()))
         menu.add_separator()
+        menu.add_command(label="Reset Stats", command=self._reset_stats)
         menu.add_command(label="Hide (Ctrl+Alt+D)", command=self.hide_widget)
         menu.add_command(label="[EXIT]", command=self.root.quit)
 
         for w in (self.root, self.content):
             w.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
 
-        # 窗口尺寸变化时重绘进度条
         self.root.bind("<Configure>", lambda e: self._draw_progress(
-            self.balance_data["topped_ratio"] if self.balance_data else 0,
-            self.balance_data["granted_ratio"] if self.balance_data else 0))
+            self._cur_ratio if hasattr(self, '_cur_ratio') else 0))
 
-    # ── 显示 / 隐藏 ──
+    def _reset_stats(self):
+        if self.balance_data:
+            self.initial_balance = self.balance_data["balance"]
+            save_state({"initial_balance": self.initial_balance})
+            self.status_var.set("统计已重置")
+            self.refresh_balance()
+
+    # ── 显示/隐藏 ──
     def hide_widget(self):
         self.root.withdraw()
 
@@ -495,19 +488,35 @@ class BalanceWidget:
             self.balance_var.set("--.--")
             self.balance_label.configure(fg=C_ERROR)
             self.sub_var.set("⚠  " + error)
-            self.topped_var.set("")
-            self.granted_var.set("")
+            self.consume_var.set(""); self.topped_var.set(""); self.token_var.set("")
             self.status_var.set(f"ERR: {error}")
             return
 
         info = parse_balance(data)
         self.balance_data = info
-        self._bal = info["balance"]
         bal = info["balance"]
         topped = info["topped"]
-        granted = info["granted"]
-        topped_ratio = info["topped_ratio"]
-        granted_ratio = info["granted_ratio"]
+
+        # 首次运行记录初始余额
+        if self.initial_balance is None:
+            self.initial_balance = bal
+            save_state({"initial_balance": bal})
+
+        # 消耗统计（从本脚本启动开始）
+        consumed = max(0, self.initial_balance - bal)
+        consumed_pct = (consumed / self.initial_balance * 100) if self.initial_balance > 0 else 0
+
+        # 进度条：充值余额占比
+        self._cur_ratio = (topped / bal) if bal > 0 else 0
+
+        # Token 估算
+        remain_tokens = int(bal / TOKEN_PRICE) if TOKEN_PRICE > 0 else 0
+        if remain_tokens >= 1_000_000:
+            token_str = f"≈ {remain_tokens/1_000_000:.1f}M"
+        elif remain_tokens >= 1_000:
+            token_str = f"≈ {remain_tokens/1_000:.0f}K"
+        else:
+            token_str = f"≈ {remain_tokens}"
 
         if bal < 0:
             color, status = C_ERROR, "数据异常"
@@ -521,9 +530,10 @@ class BalanceWidget:
         self.balance_var.set(f"{bal:.2f}")
         self.balance_label.configure(fg=color)
         self.sub_var.set(f"CNY  ·  {status}")
+        self.consume_var.set(f"消耗 {consumed:.2f} ({consumed_pct:.1f}%)" if consumed > 0 else "消耗 0.00")
         self.topped_var.set(f"充值 {topped:.2f}")
-        self.granted_var.set(f"赠送 {granted:.2f}")
-        self._draw_progress(topped_ratio, granted_ratio)
+        self.token_var.set(f"≈ {token_str}")
+        self._draw_progress(self._cur_ratio)
         self._update_time()
 
     def _update_time(self):
@@ -539,33 +549,22 @@ class BalanceWidget:
     def _on_save_key(self, key):
         self.config["api_key"] = key
         save_config(self.config)
+        self.initial_balance = None
         self.refresh_balance()
 
 
 # ═══════════════════════════════════════════════════════════
-#  给 Canvas 添加圆角矩形方法
+#  Canvas 圆角矩形补丁
 # ═══════════════════════════════════════════════════════════
 
 def _patch_canvas():
-    """给 Canvas 添加 create_rounded_rect 方法"""
-    def create_rounded_rect(self, x1, y1, x2, y2, r, **kwargs):
-        points = []
-        r = min(r, (x2 - x1) / 2, (y2 - y1) / 2)
-        points.append((x1 + r, y1))
-        points.append((x2 - r, y1))
-        points.append((x2, y1 + r))
-        points.append((x2, y2 - r))
-        points.append((x2 - r, y2))
-        points.append((x1 + r, y2))
-        points.append((x1, y2 - r))
-        points.append((x1, y1 + r))
-        # 使用 polygon 画圆角矩形
-        coords = []
-        for i, (px, py) in enumerate(points):
-            coords.extend([px, py])
-        return self.create_polygon(coords, smooth=True, **kwargs)
-
-    tk.Canvas.create_rounded_rect = create_rounded_rect
+    def _rounded_rect(self, x1, y1, x2, y2, r, **kw):
+        r = min(r, (x2 - x1) // 2, (y2 - y1) // 2)
+        pts = []
+        for px, py in [(x1+r,y1),(x2-r,y1),(x2,y1+r),(x2,y2-r),(x2-r,y2),(x1+r,y2),(x1,y2-r),(x1,y1+r)]:
+            pts += [px, py]
+        return self.create_polygon(pts, smooth=True, **kw)
+    tk.Canvas.create_rounded_rect = _rounded_rect
 
 
 _patch_canvas()
