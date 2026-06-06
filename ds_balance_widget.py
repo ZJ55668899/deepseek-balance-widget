@@ -42,7 +42,7 @@ C_TEXT     = "#e2e8f0"
 C_MUTED    = "#475569"
 C_DIM      = "#1e293b"
 C_GREEN    = "#22c55e"
-W, H       = 280, 210
+W, H       = 300, 220
 
 
 # ═══════════════════════════════════════════════════════════
@@ -336,10 +336,10 @@ class BalanceWidget:
         self.prog_canvas = tk.Canvas(self.content, bg=C_DIM, height=22, highlightthickness=0)
         self.prog_canvas.pack(fill="x", pady=(8, 0))
 
-        # 消耗 / 充值 / Token
+        # 消耗 / 充值
         self.consume_var = tk.StringVar(value="消耗 --")
         self.topped_var = tk.StringVar(value="充值 --.--")
-        self.token_var = tk.StringVar(value="≈ -- M Tokens")
+        self.token_var = tk.StringVar(value="≈ -- Tokens")
 
         row1 = tk.Frame(self.content, bg=C_BG)
         row1.pack(fill="x", pady=(1, 0))
@@ -349,8 +349,11 @@ class BalanceWidget:
                  font=("Consolas", 8)).pack(side="left", padx=4)
         tk.Label(row1, textvariable=self.topped_var,
                  bg=C_BG, fg=C_CYAN, font=("Consolas", 8)).pack(side="left")
-        tk.Label(row1, textvariable=self.token_var,
-                 bg=C_BG, fg=C_GREEN, font=("Consolas", 8)).pack(side="right")
+
+        row2 = tk.Frame(self.content, bg=C_BG)
+        row2.pack(fill="x", pady=(0, 1))
+        tk.Label(row2, textvariable=self.token_var,
+                 bg=C_BG, fg=C_GREEN, font=("Consolas", 8)).pack(side="left")
 
         # 底部栏
         self.status_var = tk.StringVar(value="等待刷新")
@@ -374,11 +377,13 @@ class BalanceWidget:
         cw = self.prog_canvas.winfo_width() or (W - 40)
         ch = 22
         self.prog_canvas.delete("all")
-        r = 4
-        self.prog_canvas.create_rounded_rect(0, 0, cw, ch, r, fill=C_DIM, outline="")
+        # 背景（平底，避免圆角多边形 bulge 问题）
+        self.prog_canvas.create_rectangle(0, 0, cw, ch, fill=C_DIM, outline="", width=0)
+        # 填充
         fw = int(cw * min(1, ratio))
         if fw > 0:
-            self.prog_canvas.create_rounded_rect(0, 0, fw, ch, r, fill=C_CYAN, outline="")
+            self.prog_canvas.create_rectangle(0, 0, fw, ch, fill=C_CYAN, outline="", width=0)
+        # 百分比文字
         self.prog_canvas.create_text(cw // 2, ch // 2,
                                       text=f"{ratio*100:.1f}%" if ratio > 0 else "0.0%",
                                       fill=C_TEXT, font=("Consolas", 10, "bold"), anchor="center")
@@ -506,17 +511,17 @@ class BalanceWidget:
         consumed = max(0, self.initial_balance - bal)
         consumed_pct = (consumed / self.initial_balance * 100) if self.initial_balance > 0 else 0
 
-        # 进度条：充值余额占比
-        self._cur_ratio = (topped / bal) if bal > 0 else 0
+        # 进度条：已消耗比例（自首次启动以来）
+        self._cur_ratio = (consumed / self.initial_balance) if self.initial_balance > 0 else 0
 
         # Token 估算
         remain_tokens = int(bal / TOKEN_PRICE) if TOKEN_PRICE > 0 else 0
         if remain_tokens >= 1_000_000:
-            token_str = f"≈ {remain_tokens/1_000_000:.1f}M"
+            token_str = f"{remain_tokens/1_000_000:.1f}M"
         elif remain_tokens >= 1_000:
-            token_str = f"≈ {remain_tokens/1_000:.0f}K"
+            token_str = f"{remain_tokens/1_000:.0f}K"
         else:
-            token_str = f"≈ {remain_tokens}"
+            token_str = str(remain_tokens)
 
         if bal < 0:
             color, status = C_ERROR, "数据异常"
@@ -532,7 +537,7 @@ class BalanceWidget:
         self.sub_var.set(f"CNY  ·  {status}")
         self.consume_var.set(f"消耗 {consumed:.2f} ({consumed_pct:.1f}%)" if consumed > 0 else "消耗 0.00")
         self.topped_var.set(f"充值 {topped:.2f}")
-        self.token_var.set(f"≈ {token_str}")
+        self.token_var.set(f"≈ {token_str} Tokens")
         self._draw_progress(self._cur_ratio)
         self._update_time()
 
